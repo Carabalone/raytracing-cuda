@@ -6,7 +6,8 @@
 #include "hittable.h"
 #include "sphere.h"
 #include "hittable_list.h"
-#include <chrono>
+#include "camera.cuh"
+#include "clock.h"
 
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
 void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
@@ -45,20 +46,8 @@ __device__ color ray_color(const ray& r, hittable** world) {
 }
 
 __global__
-void render(vec3* framebuffer, int res_x, int res_y, vec3 pixel_delta_u, vec3 pixel_delta_v, point3 pixel00, point3 camera_center, hittable **d_world) {
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    int j = threadIdx.y + blockIdx.y * blockDim.y;
-
-    if ((i >= res_x) || (j >= res_y)) return;
-
-    int pixel_index = j*res_x + i;
-
-    point3 pixel_center = pixel00 + (i * pixel_delta_u) + (j * pixel_delta_v);
-    vec3 ray_direction = pixel_center - camera_center;
-
-    ray r(camera_center, ray_direction);
-
-    framebuffer[pixel_index] = ray_color(r, d_world);
+void render(camera cam, vec3* framebuffer, hittable** world) {
+    cam.render(framebuffer, world);
 }
 
 void save_framebuffer_to_file(vec3* framebuffer, int res_x, int res_y, std::string output_filename) {
@@ -81,33 +70,15 @@ void save_framebuffer_to_file(vec3* framebuffer, int res_x, int res_y, std::stri
 }
 
 int main() {
-
-    // Image setup
-    float aspect_ratio = 16.0f / 9.0f;
-    int res_x = 400;
-    int res_y = int(res_x / aspect_ratio);
-    res_y = (res_y < 1) ? 1 : res_y;
-    int num_pixels = res_x * res_y;
-
-    //Camera
-    float focal_length = 1.0f;
-    float viewport_height = 2.0f; // arbitrary
-    float viewport_width = viewport_height * (float(res_x) / res_y); // real vs. approxiamate AR
-    point3 camera_center = point3(0.0f, 0.0f, 0.0f);
-
-    vec3 viewport_u = vec3(viewport_width, 0.0f, 0.0f);
-    vec3 viewport_v = vec3(0.0f, -viewport_height, 0.0f);
-
-    vec3 pixel_delta_u = viewport_u / res_x;
-    vec3 pixel_delta_v = viewport_v / res_y;
-
-    point3 viewport_upper_left = camera_center - vec3(0.0f, 0.0f, focal_length) - 
-        viewport_u/2 - viewport_v/2;
-
-    point3 pixel00_loc = viewport_upper_left + 0.5f * (pixel_delta_u + pixel_delta_v); // center of pixel 00
-
+    // Camera
+    camera cam;
+    cam.aspect_ratio = 16.0f/9.0f;
+    cam.res_x = 400;
+    cam.initialize();
+    auto res_y = cam.get_res_y();
 
     // Framebuffer
+    int num_pixels = cam.res_x * res_y;
     size_t framebuffer_size = num_pixels * sizeof(vec3);
     vec3 *framebuffer;
 
@@ -115,24 +86,38 @@ int main() {
 
     int threads_x = 8, threads_y = 8;
     dim3 threads(threads_x, threads_y);
-    dim3 blocks(res_x / threads_x  + 1, res_y / threads_y + 1);
+    dim3 blocks(cam.res_x / threads_x  + 1, res_y / threads_y + 1);
 
     // world creation
     hittable **d_list, **d_world;
     checkCudaErrors(cudaMalloc((void **)&d_list, 2*sizeof(hittable *)));
     checkCudaErrors(cudaMalloc((void **)&d_world, sizeof(hittable *)));
+
     create_world<<<1,1>>>(d_list,d_world);
-    checkCudaErrors(cudaGetLastError());
-    checkCudaErrors(cudaDeviceSynchronize());
-
-    render<<<blocks, threads>>>(framebuffer, res_x, res_y,
-            pixel_delta_u, pixel_delta_v, pixel00_loc, camera_center, d_world);
 
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
-    save_framebuffer_to_file(framebuffer, res_x, res_y, "output/output.ppm");
+    rtweekend::clock c;
 
+    c.start();
+    render<<<blocks, threads>>>(cam, framebuffer, d_world);
+
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    c.end();
+
+    c.print();
+
+    std::cout << "Saving framebuffer to file..." << std::endl;
+    save_framebuffer_to_file(framebuffer, cam.res_x, res_y, "output/output.ppm");
+
+    // freeing stuff
+    free_world<<<1,1>>>(d_list,d_world);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaFree(d_list));
+    checkCudaErrors(cudaFree(d_world));
     checkCudaErrors(cudaFree(framebuffer));
     return 0;
 }
