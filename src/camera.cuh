@@ -3,46 +3,31 @@
 
 #include "rtweekend.h"
 #include "hittable.h"
+#include <curand_kernel.h>
 #include <chrono>
 
 class camera {
 public:
     float  aspect_ratio = 1.0;  // Ratio of image width over height
     int    res_x        = 100;  // Rendered image width in pixel count
+    int    spp          = 10;
+    vec3 last_rand_vec3 = vec3(0,0,0);
 
-    // __host__ write_framebuffer_to_file(vec3* framebuffer) {
-    //     std::ofstream file(output_filename);
-    //     std::streambuf* coutBuffer = std::cout.rdbuf();
-    //     std::cout.rdbuf(file.rdbuf());
-    //
-    //     std::cout << "P3\n" << res_x << " " << res_y << "\n255\n";
-    //     for (int j = 0; j < res_y; j++) {
-    //         for (int i = 0; i < res_x; i++) {
-    //             size_t pixel_index = j*res_x + i;
-    //             vec3 rgb = framebuffer[pixel_index];
-    //
-    //             write_color(std::cout, rgb);
-    //         }
-    //     }
-    //
-    //     std::cout.rdbuf(coutBuffer);
-    //     std::cout << "Finished" << std::endl;
-    // }
     //TODO: refactor framebuffer from vec3* to own class
-    __device__ void render(vec3* framebuffer, hittable** world) {
+    __device__ void render(vec3* framebuffer, hittable** world, curandState *rand_state) {
         int i = threadIdx.x + blockIdx.x * blockDim.x;
         int j = threadIdx.y + blockIdx.y * blockDim.y;
 
         if ((i >= res_x) || (j >= res_y)) return;
 
         int pixel_index = j*res_x + i;
-
-        point3 pixel_center = pixel00_loc + (i * pixel_delta_u) + (j * pixel_delta_v);
-        vec3 ray_direction = pixel_center - center;
-
-        ray r(center, ray_direction);
-
-        framebuffer[pixel_index] = ray_color(r, world);
+        curandState local_rand_state = rand_state[pixel_index];
+        color pixel_color(0, 0, 0);
+        for (int sample = 0; sample < spp; sample++) {
+            ray r = get_ray(i, j, local_rand_state);
+            pixel_color += ray_color(r, world);
+        }
+        framebuffer[pixel_index] = pixel_color * pixel_samples_scale;
     }
 
     __host__ void initialize() {
@@ -68,6 +53,8 @@ public:
         auto viewport_upper_left =
             center - vec3(0, 0, focal_length) - viewport_u/2 - viewport_v/2;
         pixel00_loc = viewport_upper_left + 0.5f * (pixel_delta_u + pixel_delta_v);
+
+        pixel_samples_scale = 1.0f / spp;
     }
 
     __host__ int get_res_y() {
@@ -81,7 +68,7 @@ private:
     point3 pixel00_loc;    // Location of pixel 0, 0
     vec3   pixel_delta_u;  // Offset to pixel to the right
     vec3   pixel_delta_v;  // Offset to pixel below
-
+    float  pixel_samples_scale;
 
     __device__ color ray_color(const ray& r, hittable** world) const {
         hit_record rec;
@@ -92,6 +79,27 @@ private:
         vec3 unit_direction = normalize(r.direction());
         auto a = 0.5f * (unit_direction.y() + 1.0f);
         return ((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f));
+    }
+
+    __device__ vec3 sample_square(curandState &rand_state) const {
+
+        return vec3(
+            curand_uniform(&rand_state) - 0.5f,
+            curand_uniform(&rand_state) - 0.5f,
+            0.0f
+        );
+    }
+
+    __device__ ray get_ray(int i, int j, curandState &rand_state) {
+        auto offset = sample_square(rand_state);
+        auto pixel_sample = pixel00_loc
+                          + ((i + offset.x()) * pixel_delta_u)
+                          + ((j + offset.y()) * pixel_delta_v);
+
+        auto ray_origin = center;
+        auto ray_direction = pixel_sample - ray_origin;
+
+        return ray(ray_origin, ray_direction); 
     }
 };
 

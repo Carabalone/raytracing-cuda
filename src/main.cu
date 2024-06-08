@@ -8,6 +8,7 @@
 #include "hittable_list.h"
 #include "camera.cuh"
 #include "clock.h"
+#include <curand_kernel.h>
 
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
 void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
@@ -34,20 +35,17 @@ __global__ void free_world(hittable **d_list, hittable **d_world) {
     delete *d_world;
 }
 
-__device__ color ray_color(const ray& r, hittable** world) {
-    hit_record rec;
-    if ((*world)->hit(r, interval(0, infinity), rec)) {
-        return 0.5 * (rec.normal + color(1,1,1));
-    }
+__global__ void render_init(int seed, int res_x, int res_y, curandState *rand_state) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if((i >= res_x) || (j >= res_y)) return;
+    int pixel_index = j*res_x + i;
 
-    vec3 unit_direction = normalize(r.direction());
-    auto a = 0.5f * (unit_direction.y() + 1.0f);
-    return ((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f));
+    curand_init(seed, pixel_index, 0, &rand_state[pixel_index]);
 }
 
-__global__
-void render(camera cam, vec3* framebuffer, hittable** world) {
-    cam.render(framebuffer, world);
+__global__ void render(camera cam, vec3* framebuffer, hittable** world, curandState *rand_state) {
+    cam.render(framebuffer, world, rand_state);
 }
 
 void save_framebuffer_to_file(vec3* framebuffer, int res_x, int res_y, std::string output_filename) {
@@ -74,6 +72,7 @@ int main() {
     camera cam;
     cam.aspect_ratio = 16.0f/9.0f;
     cam.res_x = 400;
+    cam.spp = 100;
     cam.initialize();
     auto res_y = cam.get_res_y();
 
@@ -98,16 +97,22 @@ int main() {
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
+    curandState *rand_state;
+    checkCudaErrors(cudaMalloc((void **)&rand_state, num_pixels * sizeof(curandState)));
+
+    render_init<<<blocks, threads>>>(1984, cam.res_x, res_y, rand_state);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
+
     rtweekend::clock c;
 
     c.start();
-    render<<<blocks, threads>>>(cam, framebuffer, d_world);
+    render<<<blocks, threads>>>(cam, framebuffer, d_world, rand_state);
 
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
     c.end();
-
     c.print();
 
     std::cout << "Saving framebuffer to file..." << std::endl;

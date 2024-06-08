@@ -78,6 +78,14 @@ __host__ __device__ inline double dot(const vec3& u, const vec3& v) {
          + u.coords[2] * v.coords[2];
 }
 
+__host__ __device__ inline bool operator==(const vec3& u, const vec3& v) {
+    return (
+        u.coords[0] == v.coords[0] &&
+        u.coords[1] == v.coords[1] &&
+        u.coords[2] == v.coords[2]
+    );
+}
+
 __host__ __device__ inline vec3 cross(const vec3& u, const vec3& v) {
     return vec3(u.coords[1] * v.coords[2] - u.coords[2] * v.coords[1],
                 u.coords[2] * v.coords[0] - u.coords[0] * v.coords[2],
