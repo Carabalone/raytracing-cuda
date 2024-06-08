@@ -25,7 +25,7 @@ public:
         color pixel_color(0, 0, 0);
         for (int sample = 0; sample < spp; sample++) {
             ray r = get_ray(i, j, local_rand_state);
-            pixel_color += ray_color(r, world);
+            pixel_color += ray_color(r, world, local_rand_state);
         }
         framebuffer[pixel_index] = pixel_color * pixel_samples_scale;
     }
@@ -69,16 +69,34 @@ private:
     vec3   pixel_delta_u;  // Offset to pixel to the right
     vec3   pixel_delta_v;  // Offset to pixel below
     float  pixel_samples_scale;
+    int max_depth = 10;
 
-    __device__ color ray_color(const ray& r, hittable** world) const {
+    __device__ color ray_color(const ray& r, hittable** world, curandState &rand_state) const {
         hit_record rec;
-        if ((*world)->hit(r, interval(0, infinity), rec)) {
-            return 0.5 * (rec.normal + color(1,1,1));
+        ray current_ray = r;
+        float attenuation = 0.5f;
+        float current_attenuation = 1.0f;
+        int count = 0;
+
+        while (count < max_depth) {
+            if ((*world)->hit(current_ray, interval(0.001f, infinity), rec)) {
+                vec3 direction = rec.normal + random_unit_vector(rand_state);
+                current_attenuation *= attenuation;
+                current_ray = ray(rec.p, direction);
+                count++;
+            } 
+            else {
+                vec3 unit_direction = normalize(r.direction());
+                auto a = 0.5f * (unit_direction.y() + 1.0f);
+                return current_attenuation * 
+                    (((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f)));
+            }
         }
 
-        vec3 unit_direction = normalize(r.direction());
-        auto a = 0.5f * (unit_direction.y() + 1.0f);
-        return ((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f));
+        // vec3 unit_direction = normalize(current_ray.direction());
+        // auto a = 0.5f * (unit_direction.y() + 1.0f);
+        // return (((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f)));
+        return color(0,0,0);
     }
 
     __device__ vec3 sample_square(curandState &rand_state) const {
