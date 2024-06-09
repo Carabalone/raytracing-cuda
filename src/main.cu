@@ -8,6 +8,7 @@
 #include "hittable_list.h"
 #include "camera.cuh"
 #include "clock.h"
+#include "material.cuh"
 #include <curand_kernel.h>
 
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
@@ -21,18 +22,29 @@ void check_cuda(cudaError_t result, char const *const func, const char *const fi
     }
 }
 
+// TODO: make create_materials again
 __global__ void create_world(hittable **d_list, hittable **d_world) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
-        *(d_list)   = new sphere(vec3(0,0,-1), 0.5);
-        *(d_list+1) = new sphere(vec3(0,-100.5,-1), 100);
-        *d_world    = new hittable_list(d_list,2);
+        d_list[0] = new sphere(vec3(0,0,-1), 0.5,
+                               new lambertian(vec3(0.8, 0.3, 0.3)));
+        d_list[1] = new sphere(vec3(0,-100.5,-1), 100,
+                               new lambertian(vec3(0.8, 0.8, 0.0)));
+        d_list[2] = new sphere(vec3(1,0,-1), 0.5,
+                               new metal(vec3(0.8, 0.6, 0.2)));
+        d_list[3] = new sphere(vec3(-1,0,-1), 0.5,
+                               new metal(vec3(0.8, 0.8, 0.8)));
+        *d_world  = new hittable_list(d_list,4);
     }
 }
 
 __global__ void free_world(hittable **d_list, hittable **d_world) {
-    delete *(d_list);
-    delete *(d_list+1);
-    delete *d_world;
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        for(int i=0; i < 4; i++) {
+            delete ((sphere *)d_list[i])->mat;
+            delete d_list[i];
+        }
+        delete *d_world;
+    }
 }
 
 __global__ void render_init(int seed, int res_x, int res_y, curandState *rand_state) {
@@ -88,8 +100,9 @@ int main() {
     dim3 blocks(cam.res_x / threads_x  + 1, res_y / threads_y + 1);
 
     // world creation
-    hittable **d_list, **d_world;
-    checkCudaErrors(cudaMalloc((void **)&d_list, 2*sizeof(hittable *)));
+    hittable **d_list;
+    checkCudaErrors(cudaMalloc((void **)&d_list, 4*sizeof(hittable *)));
+    hittable **d_world;
     checkCudaErrors(cudaMalloc((void **)&d_world, sizeof(hittable *)));
 
     create_world<<<1,1>>>(d_list,d_world);
@@ -119,10 +132,14 @@ int main() {
     save_framebuffer_to_file(framebuffer, cam.res_x, res_y, "output/output.ppm");
 
     // freeing stuff
+    checkCudaErrors(cudaDeviceSynchronize());
     free_world<<<1,1>>>(d_list,d_world);
     checkCudaErrors(cudaGetLastError());
-    checkCudaErrors(cudaFree(d_list));
+    checkCudaErrors(cudaDeviceSynchronize());
     checkCudaErrors(cudaFree(d_world));
+    checkCudaErrors(cudaFree(d_list));
     checkCudaErrors(cudaFree(framebuffer));
     return 0;
 }
+
+

@@ -65,6 +65,15 @@ public:
             gpu_rand(rand_state, min, max)
         );
     }
+
+    __host__ __device__ bool near_zero() {
+        float s = float(1e-8);
+        return (
+            std::fabs(coords[0]) < s &&
+            std::fabs(coords[1]) < s && 
+            std::fabs(coords[2]) < s
+        );
+    }
 };
 
 using point3 = vec3;
@@ -115,6 +124,10 @@ __host__ __device__ inline vec3 cross(const vec3& u, const vec3& v) {
 
 __host__ __device__ inline vec3 normalize(const vec3& v) {
     return v / v.length();
+}
+
+__host__ __device__ inline vec3 reflect(const vec3& v, const vec3& n) {
+    return v - 2*dot(v,n)*n;
 }
 
 

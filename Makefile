@@ -1,6 +1,6 @@
 # Compiler and flags
 NVCC := /usr/local/cuda/bin/nvcc
-NVCC_FLAGS := -arch=sm_50 -Xcompiler -Wall -O3
+NVCC_FLAGS := -arch=sm_50 -Xcompiler -Wall -O3 -g -G
 
 # Directories
 SRC_DIR := src

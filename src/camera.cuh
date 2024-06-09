@@ -3,6 +3,7 @@
 
 #include "rtweekend.h"
 #include "hittable.h"
+#include "material.cuh"
 #include <curand_kernel.h>
 #include <chrono>
 
@@ -74,28 +75,32 @@ private:
     __device__ color ray_color(const ray& r, hittable** world, curandState &rand_state) const {
         hit_record rec;
         ray current_ray = r;
-        float attenuation = 0.5f;
-        float current_attenuation = 1.0f;
+        // float attenuation = 0.5f;
+        // float current_attenuation = 1.0f;
         int count = 0;
+        ray scattered = r;
+        color accumulated_color = color(1, 1, 1);
+        color current_attenuation = color(1, 1, 1);
 
         while (count < max_depth) {
             if ((*world)->hit(current_ray, interval(0.001f, infinity), rec)) {
-                vec3 direction = rec.normal + random_unit_vector(rand_state);
-                current_attenuation *= attenuation;
-                current_ray = ray(rec.p, direction);
-                count++;
-            } 
-            else {
+
+                if (rec.mat->scatter(current_ray, rec, current_attenuation, scattered, rand_state)) {
+                    current_ray = scattered;
+                    accumulated_color = accumulated_color * current_attenuation;
+                } else {
+                    return color(0,0,0);
+                }
+            } else { // background color
                 vec3 unit_direction = normalize(r.direction());
                 auto a = 0.5f * (unit_direction.y() + 1.0f);
-                return current_attenuation * 
-                    (((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f)));
+                color background = ((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f));
+                return accumulated_color * background;
             }
+
+            count++;
         }
 
-        // vec3 unit_direction = normalize(current_ray.direction());
-        // auto a = 0.5f * (unit_direction.y() + 1.0f);
-        // return (((1.0f - a) * color(1.0f, 1.0f, 1.0f) + a * color(0.5f, 0.7f, 1.0f)));
         return color(0,0,0);
     }
 
