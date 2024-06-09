@@ -18,9 +18,9 @@ public:
 
 class lambertian : public material {
 private:
+    color albedo;
 
 public:
-    color albedo;
     __device__ lambertian(const color& albedo) : albedo(albedo) {}
 
     __device__ bool scatter(const ray& r_in, const hit_record& rec, color& attenuation, ray& scattered,
@@ -39,17 +39,19 @@ public:
 
 class metal : public material {
 private:
-public:
     color albedo;
-    __device__ metal(const color& albedo) : albedo(albedo) {}
+    float fuzz;
+public:
+    __device__ metal(const color& albedo, float _fuzz = 0.0f) : albedo(albedo), fuzz(_fuzz) {}
 
     __device__ bool scatter(const ray& r_in, const hit_record& rec, color& attenuation, ray& scattered,
                 curandState& rand_state)
     const override {
         vec3 reflected = reflect(r_in.direction(), rec.normal);
+        reflected = normalize(reflected) + (fuzz * random_unit_vector(rand_state));
         scattered = ray(rec.p, reflected);
         attenuation = albedo;
-        return true;
+        return (dot(scattered.direction(), rec.normal) > 0);
     }
 
 };
