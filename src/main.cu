@@ -25,14 +25,14 @@ void check_cuda(cudaError_t result, char const *const func, const char *const fi
 // TODO: make create_materials again
 __global__ void create_world(hittable **d_list, hittable **d_world) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
-        d_list[0] = new sphere(vec3(0,0,-1), 0.5,
+        d_list[0] = new sphere(vec3(0,0,-1.2f), 0.5,
                                new lambertian(vec3(0.3, 0.3, 0.8)));
         d_list[1] = new sphere(vec3(0,-100.5,-1), 100,
                                new lambertian(vec3(0.8, 0.8, 0.0)));
         d_list[2] = new sphere(vec3(1,0,-1), 0.5,
                                new metal(vec3(0.8, 0.6, 0.2), 0.5f));
         d_list[3] = new sphere(vec3(-1,0,-1), 0.5,
-                               new metal(vec3(0.8, 0.8, 0.8), 0.1f));
+                               new dieletric(1.0f / 1.33f));
         *d_world  = new hittable_list(d_list,4);
     }
 }

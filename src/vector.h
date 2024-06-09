@@ -12,6 +12,7 @@ public:
 
     __host__ __device__ vec3() : coords{0.0f, 0.0f, 0.0f} {};
     __host__ __device__ vec3(float e0, float e1, float e2) : coords{e0, e1, e2} {};
+    __host__ __device__ vec3(float e0) : coords{e0, e0, e0} {};
 
     __host__ __device__ float x() const { return coords[0]; }
     __host__ __device__ float y() const { return coords[1]; }
@@ -128,6 +129,18 @@ __host__ __device__ inline vec3 normalize(const vec3& v) {
 
 __host__ __device__ inline vec3 reflect(const vec3& v, const vec3& n) {
     return v - 2*dot(v,n)*n;
+}
+
+// relative_refractive_index is η/η' 
+// (or refraction_index_incident_medium / refraction_index_refracted_medium)
+// TODO: extend to host with macros
+__device__ inline vec3 refract(const vec3& incident,
+                                        const vec3& normal,
+                                        float relative_refractive_index) {
+    float cos_theta = fminf(dot(-incident, normal), 1.0f);
+    vec3 refracted_perp  = relative_refractive_index * (incident + cos_theta * normal);
+    vec3 refracted_paral = -sqrt(fabs(1.0f - refracted_perp.length_squared())) * normal;
+    return refracted_perp + refracted_paral;
 }
 
 
