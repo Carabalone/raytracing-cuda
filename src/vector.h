@@ -143,6 +143,15 @@ __device__ inline vec3 refract(const vec3& incident,
     return refracted_perp + refracted_paral;
 }
 
+// probabilistic method, idk if it's worth it doing it analitically with circular coordinates
+__device__ inline vec3 random_in_unit_disk(curandState& rand_state) {
+    while (true) {
+        auto p = vec3(gpu_rand(rand_state, -1.0f, 1.0f), gpu_rand(rand_state, -1.0f, 1.0f), 0);
+        if (p.length_squared() < 1)
+            return p;
+    }
+}
+
 
 // TODO: extend these functions to work in the host as well.
 // With macros, ex:

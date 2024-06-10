@@ -30,16 +30,18 @@ __global__ void create_world(hittable **d_list, hittable **d_world) {
         d_list[1] = new sphere(vec3(0,-100.5,-1), 100,
                                new lambertian(vec3(0.8, 0.8, 0.0)));
         d_list[2] = new sphere(vec3(1,0,-1), 0.5,
-                               new metal(vec3(0.8, 0.6, 0.2), 0.5f));
+                               new metal(vec3(0.8, 0.6, 0.2), 0.2f));
         d_list[3] = new sphere(vec3(-1,0,-1), 0.5,
-                               new dieletric(1.0f / 1.33f));
-        *d_world  = new hittable_list(d_list,4);
+                               new dieletric(1.5f));
+        d_list[4] = new sphere(vec3(-1.0f, 0.0, -1.0), 0.4,
+                               new dieletric(1.0f / 1.5f));
+        *d_world  = new hittable_list(d_list,5);
     }
 }
 
 __global__ void free_world(hittable **d_list, hittable **d_world) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
-        for(int i=0; i < 4; i++) {
+        for(int i=0; i < 5; i++) {
             delete ((sphere *)d_list[i])->mat;
             delete d_list[i];
         }
@@ -85,6 +87,13 @@ int main() {
     cam.aspect_ratio = 16.0f/9.0f;
     cam.res_x = 400;
     cam.spp = 100;
+    cam.center = point3(-2, 2, 1);
+    cam.lookat = point3(0, 0, -1);
+    cam.up     = point3(0, 1, 0);
+    cam.vfov   = 30;
+
+    cam.defocus_angle = 0.1f;
+    cam.focal_distance = 10.0f;
     cam.initialize();
     auto res_y = cam.get_res_y();
 
@@ -101,7 +110,7 @@ int main() {
 
     // world creation
     hittable **d_list;
-    checkCudaErrors(cudaMalloc((void **)&d_list, 4*sizeof(hittable *)));
+    checkCudaErrors(cudaMalloc((void **)&d_list, 5*sizeof(hittable *)));
     hittable **d_world;
     checkCudaErrors(cudaMalloc((void **)&d_world, sizeof(hittable *)));
 
