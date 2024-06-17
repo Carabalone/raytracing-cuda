@@ -1,7 +1,5 @@
 #include <iostream>
-#include "vector.h"
 #include "color.h"
-#include "interval.cuh"
 
 void write_color(std::ostream& out, const color& pixel_color) {
     auto r = pixel_color.x();

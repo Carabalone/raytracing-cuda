@@ -103,6 +103,7 @@ private:
         while (count < max_depth) {
             if ((*world)->hit(current_ray, interval(0.001f, infinity), rec)) {
 
+                // printf("rec.mat: %p\n", rec.mat);
                 if (rec.mat->scatter(current_ray, rec, current_attenuation, scattered, rand_state)) {
                     current_ray = scattered;
                     accumulated_color = accumulated_color * current_attenuation;

@@ -3,6 +3,7 @@
 #define COLOR_H
 
 #include "vector.h"
+#include "interval.cuh"
 
 using color = vec3;
 

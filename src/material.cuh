@@ -4,8 +4,20 @@
 #include "rtweekend.h"
 #include "utility.cuh"
 #include <curand_kernel.h>
+#include <string.h>
 
-class hit_record;
+class hit_record; // preventing circular dependency
+
+enum material_type {
+    lambertian_t, metal_t, dieletric_t
+};
+
+struct material_info {
+    material_type type;
+    vec3 albedo;
+    float fuzz;
+    float refraction_index;
+};
 
 class material {
 public:
@@ -15,6 +27,12 @@ public:
         return false;
     }
 
+    __host__ __device__ virtual size_t size() = 0;
+
+    __host__ __device__ virtual ~material() {}
+
+    __device__ virtual void print_name() = 0;
+
 };
 
 class lambertian : public material {
@@ -22,7 +40,9 @@ private:
     color albedo;
 
 public:
-    __device__ lambertian(const color& albedo) : albedo(albedo) {}
+    __host__ __device__ lambertian(const color& albedo) : albedo(albedo) {}
+
+    __device__ void print_name() override { printf("lambertian\n"); }
 
     __device__ bool scatter(const ray& r_in, const hit_record& rec, color& attenuation, ray& scattered,
                  curandState& rand_state)
@@ -34,7 +54,12 @@ public:
 
         scattered = ray(rec.p, scatter_direction);
         attenuation = albedo;
+
         return true;
+    }
+
+    __host__ __device__ size_t size() override {
+        return sizeof(lambertian);
     }
 };
 
@@ -43,7 +68,9 @@ private:
     color albedo;
     float fuzz;
 public:
-    __device__ metal(const color& albedo, float _fuzz = 0.0f) : albedo(albedo), fuzz(_fuzz) {}
+    __host__ __device__ metal(const color& albedo, float _fuzz = 0.0f) : albedo(albedo), fuzz(_fuzz) {}
+
+    __device__ void print_name() override { printf("metal\n"); }
 
     __device__ bool scatter(const ray& r_in, const hit_record& rec, color& attenuation, ray& scattered,
                 curandState& rand_state)
@@ -55,11 +82,28 @@ public:
         return (dot(scattered.direction(), rec.normal) > 0);
     }
 
+    __host__ __device__ size_t size() override {
+        return sizeof(metal);
+    }
+
 };
 
 class dieletric : public material {
+
+private:
+    float refraction_index;
+
+    // schlick's approximation
+    static __device__ float reflectance(float cosine, float _refraction_index) {
+        float r0 = (1.0f - _refraction_index) / (1.0f + _refraction_index);
+        r0 = r0 * r0;
+
+        return r0 + (1.0f - r0)*pow((1.0f-cosine), 5);
+    }
 public:
-    __device__ dieletric(float _refraction_index) : refraction_index(_refraction_index) {}
+    __host__ __device__ dieletric(float _refraction_index) : refraction_index(_refraction_index) {}
+
+    __device__ void print_name() override { printf("dieletric\n"); }
 
     __device__ bool scatter(const ray& r_in, const hit_record& rec, color& attenuation, ray& scattered,
                 curandState& rand_state)
@@ -87,16 +131,10 @@ public:
         return true;
     }
 
-private:
-    float refraction_index;
-
-    // schlick's approximation
-    static __device__ float reflectance(float cosine, float _refraction_index) {
-        float r0 = (1.0f - _refraction_index) / (1.0f + _refraction_index);
-        r0 = r0 * r0;
-
-        return r0 + (1.0f - r0)*pow((1.0f-cosine), 5);
+    __host__ __device__ size_t size() override {
+        return sizeof(dieletric);
     }
+
 };
 
 #endif
