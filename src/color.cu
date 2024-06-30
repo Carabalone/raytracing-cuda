@@ -24,3 +24,7 @@ inline double linear_to_gamma(double linear_component)
 
     return 0;
 }
+
+__host__ color random_color() {
+    return color(random_double(), random_double(), random_double());
+}

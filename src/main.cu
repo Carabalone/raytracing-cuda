@@ -10,61 +10,69 @@
 #include "clock.h"
 #include "material.cuh"
 #include <curand_kernel.h>
-#include "utility.cuh"
+#include "color.h"
 #include "material_manager.cuh"
-
-
-#define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
-void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
-    if (result) {
-        std::cerr << "CUDA error = " << static_cast<unsigned int>(result) << " at " <<
-        file << ":" << line << " '" << func << "' \n";
-        // Make sure we call CUDA Device Reset before exiting
-        cudaDeviceReset();
-        exit(99);
-    }
-}
-
 
 __host__ void create_materials(material_manager* mat_manager) {
     printf("size of materials: \nlambertian: %lu\nmetal: %lu \ndieletric: %lu\n", sizeof(lambertian), sizeof(metal), sizeof(dieletric));
-    material_info* ground = new material_info;
-    ground->type = material_type::lambertian_t;
-    ground->albedo = vec3(0.8, 0.8, 0.0);
 
-    mat_manager->add_material(ground);
+    // random 10 lambertian materials
+    for (int i=0; i < 10; i++) {
+        material_info* mat = new material_info;
+        mat->type = material_type::lambertian_t;
+        mat->albedo = random_color();
+        mat_manager->add_material(mat);
+    }
 
-    material_info* mid = new material_info;
-    mid->type = material_type::lambertian_t;
-    mid->albedo = vec3(0.3, 0.3, 0.8);
+    // random 3 metal materials
+    for (int i=0; i < 3; i++) {
+        material_info* mat = new material_info;
+        mat->type = material_type::metal_t;
+        mat->albedo = random_color();
+        mat->fuzz = float(random_double());
+        mat_manager->add_material(mat);
+    }
 
-    mat_manager->add_material(mid);
+    // random 3 dieletric materials
+    for (int i=0; i < 3; i++) {
+        material_info* mat = new material_info;
+        mat->type = material_type::dieletric_t;
+        mat->refraction_index = float(random_double());
+        mat_manager->add_material(mat);
+    }
 
-    material_info* right = new material_info;
-    right->type   = material_type::metal_t;
-    right->albedo = vec3(0.8, 0.6, 0.2);
-    right->fuzz   = 0.2f;
-
-    mat_manager->add_material(right);
-
-    material_info* hollow_in = new material_info;
-    hollow_in->type   = material_type::dieletric_t;
-    hollow_in->refraction_index = 1.5f;
-
-    mat_manager->add_material(hollow_in);
-
-    material_info* hollow_out = new material_info;
-    hollow_out->type   = material_type::dieletric_t;
-    hollow_out->refraction_index = 1.0f / 1.5f;
-
-    mat_manager->add_material(hollow_out);
 }
 
 // TODO: make create_materials again
-__global__ void create_world(hittable **d_list, hittable **d_world, material_manager* mat_manager) {
+__global__ void create_world(hittable **d_list, hittable **d_world, material_manager* mat_manager, curandState* rand_state) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
 
+        curandState local_rand_state = rand_state[0];
         material** mats = mat_manager->get_device_materials();
+
+        // for (int a=-11; a < 11; a++) {
+        //     for (int b=-11; b < 11; b++) {
+        //         auto choose_mat_type = gpu_rand(local_rand_state);
+        //         point3 center(a + 0.9 * gpu_rand(local_rand_state), 0.2, b + 0.9 * gpu_rand(local_rand_state));
+        //
+        //         if ((center - point3(4, 0.2, 0)).length() > 0.9f) {
+        //             printf("acess: %d/%d\n", ((a+11) * (b+11) + (b+11)), (22*22));
+        //             if (choose_mat_type < 0.8) {
+        //                 auto choose_mat = int(gpu_rand(local_rand_state) * 10.5f);
+        //                 printf("choose_mat: %d/%d\n", choose_mat, mat_manager->size());
+        //                 d_list[(a + 11) * (b + 11) + b + 11] = new sphere(center, 0.2, mats[choose_mat]);
+        //             } else if (choose_mat_type < 0.95) {
+        //                 auto choose_mat = 11 + int(gpu_rand(local_rand_state) * 3);
+        //                 printf("choose_mat: %d/%d\n", choose_mat, mat_manager->size());
+        //                 d_list[(a + 11) * (b + 11) + b + 11] = new sphere(center, 0.2, mats[choose_mat]);
+        //             } else {
+        //                 auto choose_mat = 13 + int(gpu_rand(local_rand_state) * 3);
+        //                 printf("choose_mat: %d/%d\n", choose_mat, mat_manager->size());
+        //                 d_list[(a + 11) * (b + 11) + b + 11] = new sphere(center, 0.2, mats[choose_mat]);
+        //             } 
+        //         }
+        //     }
+        // }
 
         d_list[0] = new sphere(vec3(0,0,-1.2f), 0.5,
                                mats[1]);
@@ -76,16 +84,16 @@ __global__ void create_world(hittable **d_list, hittable **d_world, material_man
                                mats[3]);
         d_list[4] = new sphere(vec3(-1.0f, 0.0, -1.0), 0.4,
                                mats[4]);
-        *d_world  = new hittable_list(d_list,5);
+        *d_world  = new hittable_list(d_list, 5);
     }
 }
 
 __global__ void free_world(hittable **d_list, hittable **d_world) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
-        for(int i=0; i < 5; i++) {
-            delete ((sphere *)d_list[i])->mat; // TODO: delete this stuff in mat_manager
-            delete d_list[i];
-        }
+        // for(int i=0; i < 16; i++) {
+        //     delete ((sphere *)d_list[i])->mat; // TODO: delete this stuff in mat_manager
+        //     delete d_list[i];
+        // }
         delete *d_world;
     }
 }
@@ -128,7 +136,7 @@ camera create_camera() {
     camera cam;
     cam.aspect_ratio = 16.0f/9.0f;
     cam.res_x  = 400;
-    cam.spp    = 100;
+    cam.spp    = 25;
     cam.center = point3(-2, 2, 1);
     cam.lookat = point3(0, 0, -1);
     cam.up     = point3(0, 1, 0);
@@ -145,11 +153,29 @@ int main() {
     camera cam = create_camera();
     int res_y  = cam.get_res_y();
 
+    // Framebuffer
+    int num_pixels = cam.res_x * res_y;
+    size_t framebuffer_size = num_pixels * sizeof(vec3);
+    vec3 *framebuffer;
+
+    checkCudaErrors(cudaMallocManaged((void **)&framebuffer, framebuffer_size));
+
     // materials: 
     material_manager* mat_manager;
     checkCudaErrors(cudaMallocManaged((void**)&mat_manager, sizeof(mat_manager)));
     create_materials(mat_manager);
     mat_manager->dispatch();
+
+    int threads_x = 8, threads_y = 8;
+    dim3 threads(threads_x, threads_y);
+    dim3 blocks(cam.res_x / threads_x  + 1, res_y / threads_y + 1);
+
+    curandState *rand_state;
+    checkCudaErrors(cudaMalloc((void **)&rand_state, num_pixels * sizeof(curandState)));
+
+    render_init<<<blocks, threads>>>(1984, cam.res_x, res_y, rand_state);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
 
     create_device_materials<<<1, 1>>>(
         mat_manager->get_device_material_info(),
@@ -159,34 +185,17 @@ int main() {
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
-    // Framebuffer
-    int num_pixels = cam.res_x * res_y;
-    size_t framebuffer_size = num_pixels * sizeof(vec3);
-    vec3 *framebuffer;
-
-    checkCudaErrors(cudaMallocManaged((void **)&framebuffer, framebuffer_size));
-
-    int threads_x = 8, threads_y = 8;
-    dim3 threads(threads_x, threads_y);
-    dim3 blocks(cam.res_x / threads_x  + 1, res_y / threads_y + 1);
-
     // world creation
     hittable **d_list;
-    checkCudaErrors(cudaMalloc((void **)&d_list, 5*sizeof(hittable *)));
+    checkCudaErrors(cudaMalloc((void **)&d_list, 22*22*sizeof(hittable *)));
     hittable **d_world;
     checkCudaErrors(cudaMalloc((void **)&d_world, sizeof(hittable *)));
 
-    create_world<<<1,1>>>(d_list,d_world, mat_manager);
+    create_world<<<1,1>>>(d_list,d_world, mat_manager, rand_state);
 
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
-    curandState *rand_state;
-    checkCudaErrors(cudaMalloc((void **)&rand_state, num_pixels * sizeof(curandState)));
-
-    render_init<<<blocks, threads>>>(1984, cam.res_x, res_y, rand_state);
-    checkCudaErrors(cudaGetLastError());
-    checkCudaErrors(cudaDeviceSynchronize());
 
     rtweekend::clock c;
 

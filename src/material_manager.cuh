@@ -5,17 +5,6 @@
 #include "material.cuh"
 #include "utility.cuh"
 
-#define checkCudaErrors2(val) check_cuda2( (val), #val, __FILE__, __LINE__ )
-void check_cuda2(cudaError_t result, char const *const func, const char *const file, int const line) {
-    if (result) {
-        std::cerr << "CUDA error = " << static_cast<unsigned int>(result) << " at " <<
-        file << ":" << line << " '" << func << "' \n";
-        // Make sure we call CUDA Device Reset before exiting
-        cudaDeviceReset();
-        exit(99);
-    }
-}
-
 class material_manager {
 private:
     std::vector<material_info*> materials;
@@ -55,20 +44,20 @@ public:
         printf("num_materials: %d\n", num_materials);
         count = num_materials;
 
-        checkCudaErrors2(cudaMalloc((void**) &d_material_info, num_materials * sizeof(material_info*)));
+        checkCudaErrors(cudaMalloc((void**) &d_material_info, num_materials * sizeof(material_info*)));
 
         for (int i = 0; i < num_materials; i++) {
             material_info* d_mat_info; 
             size_t size = sizeof(material_info);
-            checkCudaErrors2(cudaMalloc((void**) &d_mat_info, size));
-            checkCudaErrors2(cudaMemcpy(d_mat_info, materials[i], size, cudaMemcpyHostToDevice));
-            checkCudaErrors2(cudaMemcpy(&d_material_info[i], &d_mat_info, sizeof(material_info*), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMalloc((void**) &d_mat_info, size));
+            checkCudaErrors(cudaMemcpy(d_mat_info, materials[i], size, cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(&d_material_info[i], &d_mat_info, sizeof(material_info*), cudaMemcpyHostToDevice));
         }
 
-        checkCudaErrors2(cudaMalloc((void**)&d_materials, count * sizeof(material*)));
+        checkCudaErrors(cudaMalloc((void**)&d_materials, count * sizeof(material*)));
 
-        checkCudaErrors2(cudaGetLastError());
-        checkCudaErrors2(cudaDeviceSynchronize());
+        checkCudaErrors(cudaGetLastError());
+        checkCudaErrors(cudaDeviceSynchronize());
 
         for (auto& mat : materials) {
             delete mat;
@@ -85,7 +74,7 @@ public:
         return d_material_info;
     }
 
-    int size() const {
+    __host__ __device__ int size() const {
         return count;
     }
 };
