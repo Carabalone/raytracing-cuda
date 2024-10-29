@@ -8,6 +8,7 @@
 class material_manager {
 private:
     std::vector<material_info*> materials;
+    std::vector<material*> h_materials;
     material_info** d_material_info;
     material** d_materials;
     int count = -1;
@@ -54,20 +55,38 @@ public:
             checkCudaErrors(cudaMemcpy(&d_material_info[i], &d_mat_info, sizeof(material_info*), cudaMemcpyHostToDevice));
         }
 
-        checkCudaErrors(cudaMalloc((void**)&d_materials, count * sizeof(material*)));
+        checkCudaErrors(cudaMallocManaged((void**)&d_materials, count * sizeof(material*)));
 
         checkCudaErrors(cudaGetLastError());
         checkCudaErrors(cudaDeviceSynchronize());
 
-        for (auto& mat : materials) {
-            delete mat;
+        for (auto& mat_info : materials) {
+            switch(mat_info->type) {
+                case (material_type::lambertian_t):
+                    h_materials.push_back(new lambertian(mat_info->albedo));
+                    break;
+                case (material_type::metal_t):
+                    h_materials.push_back(new metal(mat_info->albedo, mat_info->fuzz));
+                    break;
+                case (material_type::dieletric_t):
+                    h_materials.push_back(new dieletric(mat_info->refraction_index));
+                    break;
+            }
         }
 
-        materials.clear();
+        // for (auto& mat : materials) {
+        //     delete mat;
+        // }
+
+        // materials.clear();
     }
 
     __host__ __device__ material** get_device_materials() const {
         return d_materials;
+    }
+
+    __host__ std::vector<material*> get_host_materials() const {
+        return h_materials;
     }
 
     material_info** get_device_material_info() const {

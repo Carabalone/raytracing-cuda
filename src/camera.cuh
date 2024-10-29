@@ -32,6 +32,7 @@ public:
         int pixel_index = j*res_x + i;
         curandState local_rand_state = rand_state[pixel_index];
         color pixel_color(0, 0, 0);
+
         for (int sample = 0; sample < spp; sample++) {
             ray r = get_ray(i, j, local_rand_state);
             pixel_color += ray_color(r, world, local_rand_state);

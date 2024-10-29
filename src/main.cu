@@ -12,6 +12,7 @@
 #include <curand_kernel.h>
 #include "color.h"
 #include "material_manager.cuh"
+#include "geometry_manager.cuh"
 
 __host__ void create_materials(material_manager* mat_manager) {
     printf("size of materials: \nlambertian: %lu\nmetal: %lu \ndieletric: %lu\n", sizeof(lambertian), sizeof(metal), sizeof(dieletric));
@@ -74,18 +75,81 @@ __global__ void create_world(hittable **d_list, hittable **d_world, material_man
         //     }
         // }
 
-        d_list[0] = new sphere(vec3(0,0,-1.2f), 0.5,
-                               mats[1]);
-        d_list[1] = new sphere(vec3(0,-100.5,-1), 100,
-                               mats[0]);
-        d_list[2] = new sphere(vec3(1,0,-1), 0.5,
-                               mats[2]);
-        d_list[3] = new sphere(vec3(-1,0,-1), 0.5,
-                               mats[3]);
-        d_list[4] = new sphere(vec3(-1.0f, 0.0, -1.0), 0.4,
-                               mats[4]);
-        *d_world  = new hittable_list(d_list, 5);
+        // d_list[0] = new sphere(vec3(0,0,-1.2f), 0.5,
+        //                        mats[1]);
+        // d_list[1] = new sphere(vec3(0,-100.5,-1), 100,
+        //                        mats[0]);
+        // d_list[2] = new sphere(vec3(1,0,-1), 0.5,
+        //                        mats[2]);
+        // d_list[3] = new sphere(vec3(-1,0,-1), 0.5,
+        //                        mats[3]);
+        // d_list[4] = new sphere(vec3(-1.0f, 0.0, -1.0), 0.4,
+        //                        mats[4]);
+        // *d_world  = new hittable_list(d_list, 5);
     }
+}
+
+__host__ void create_geometries(geometry_manager* geom_manager, material** mats) {
+
+
+    // Geometry setup
+    geometry_info* geom0 = new geometry_info;
+    geom0->type = sphere_t;
+    geom0->center = point3(0, 0, -1.2f);
+    geom0->radius = 0.5f;
+    geom0->mat = mats[11];
+
+    geometry_info* geom1 = new geometry_info;
+    geom1->type = sphere_t;
+    geom1->center = point3(0, -100.5, -1);
+    geom1->radius = 100;
+    geom1->mat = mats[0];
+
+    geometry_info* geom2 = new geometry_info;
+    geom2->type = sphere_t;
+    geom2->center = point3(1, 0, -1);
+    geom2->radius = 0.5f;
+    geom2->mat = mats[2];
+
+    geometry_info* geom3 = new geometry_info;
+    geom3->type = sphere_t;
+    geom3->center = point3(-1, 0, -1);
+    geom3->radius = 0.5f;
+    geom3->mat = mats[3];
+
+    geometry_info* geom4 = new geometry_info;
+    geom4->type = sphere_t;
+    geom4->center = point3(-1.0f, 0.0, -1.0);
+    geom4->radius = 0.4f;
+    geom4->mat = mats[4];
+
+    // Add geometries to the geometry manager
+    geom_manager->add_geometry(geom0);
+    geom_manager->add_geometry(geom1);
+    geom_manager->add_geometry(geom2);
+    geom_manager->add_geometry(geom3);
+    geom_manager->add_geometry(geom4);
+
+    std::cout << "Before Dispatching to device" << std::endl;
+
+    // Dispatch geometries to device memory
+    geom_manager->dispatch();
+
+    std::cout << "After Dispatching to device" << std::endl;
+
+    // Create device geometries
+    geometry_info** d_geometry_info = geom_manager->get_device_geometry_info();
+    hittable** d_geometries = geom_manager->get_device_geometries();
+    hittable** d_world = geom_manager->get_world();
+    hittable_list* hl = geom_manager->get_hlist();
+    int num_geometries = geom_manager->size();
+
+    std::cout << "Creating device geometries: " << std::endl;
+
+    create_device_geometries<<<1, 1>>>(d_geometry_info, d_geometries, hl, d_world, num_geometries);
+
+    checkCudaErrors(cudaDeviceSynchronize());
+    std::cout << "Created device geometries\n";
 }
 
 __global__ void free_world(hittable **d_list, hittable **d_world) {
@@ -94,7 +158,7 @@ __global__ void free_world(hittable **d_list, hittable **d_world) {
         //     delete ((sphere *)d_list[i])->mat; // TODO: delete this stuff in mat_manager
         //     delete d_list[i];
         // }
-        delete *d_world;
+        // delete *d_world;
     }
 }
 
@@ -149,6 +213,25 @@ camera create_camera() {
 }
 
 int main() {
+
+    checkCudaErrors(cudaSetDevice(0));
+    int deviceId = 0;
+    checkCudaErrors(cudaGetDevice(&deviceId));
+
+    cudaDeviceProp deviceProp;
+    checkCudaErrors(cudaGetDeviceProperties(&deviceProp, deviceId));
+    size_t gpu_free_mem, gpu_total_mem;
+    checkCudaErrors(cudaMemGetInfo(&gpu_free_mem, &gpu_total_mem));
+    printf("CUDA information\n");
+    printf("       using device: %d\n", deviceId);
+    printf("               name: %s\n",deviceProp.name);
+    printf("    multiprocessors: %d\n", deviceProp.multiProcessorCount);
+    printf(" compute capability: %d.%d\n", deviceProp.major,deviceProp.minor);
+    printf("      global memory: %.1f MiB\n", deviceProp.totalGlobalMem/1048576.0);
+    printf("        free memory: %.1f MiB\n", gpu_free_mem/1048576.0);
+    printf("\n");
+
+
     // Camera
     camera cam = create_camera();
     int res_y  = cam.get_res_y();
@@ -186,21 +269,31 @@ int main() {
     checkCudaErrors(cudaDeviceSynchronize());
 
     // world creation
-    hittable **d_list;
-    checkCudaErrors(cudaMalloc((void **)&d_list, 22*22*sizeof(hittable *)));
-    hittable **d_world;
-    checkCudaErrors(cudaMalloc((void **)&d_world, sizeof(hittable *)));
+    // hittable **d_list;
+    // checkCudaErrors(cudaMalloc((void **)&d_list, 22*22*sizeof(hittable *)));
+    // hittable **d_world;
+    // checkCudaErrors(cudaMalloc((void **)&d_world, sizeof(hittable *)));
+    //
+    // create_world<<<1,1>>>(d_list,d_world, mat_manager, rand_state);
 
-    create_world<<<1,1>>>(d_list,d_world, mat_manager, rand_state);
+    geometry_manager* geom_manager;
+    std::cout << "Reached geom manager;" << std::endl;
+    checkCudaErrors(cudaMallocManaged((void**)&geom_manager, sizeof(geometry_manager)));
 
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
+    create_geometries(geom_manager, mat_manager->get_device_materials());
+
+    std::cout << "after create geoms" << std::endl;
+
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
 
     rtweekend::clock c;
 
     c.start();
-    render<<<blocks, threads>>>(cam, framebuffer, d_world, rand_state);
+    render<<<blocks, threads>>>(cam, framebuffer, geom_manager->get_world(), rand_state);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
@@ -212,12 +305,12 @@ int main() {
 
     // freeing stuff
     checkCudaErrors(cudaDeviceSynchronize());
-    free_world<<<1,1>>>(d_list,d_world);
-    checkCudaErrors(cudaGetLastError());
-    checkCudaErrors(cudaDeviceSynchronize());
-    checkCudaErrors(cudaFree(d_world));
-    checkCudaErrors(cudaFree(d_list));
-    checkCudaErrors(cudaFree(framebuffer));
+    // free_world<<<1,1>>>(d_list,d_world);
+    // checkCudaErrors(cudaGetLastError());
+    // checkCudaErrors(cudaDeviceSynchronize());
+    // checkCudaErrors(cudaFree(d_world));
+    // checkCudaErrors(cudaFree(d_list));
+    // checkCudaErrors(cudaFree(framebuffer));
     return 0;
 }
 
